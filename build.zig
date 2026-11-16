@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&tests_run.step);
 
     const examples_step = b.step("examples", "build the examples");
-    inline for (.{ "hello", "grab", "ui_demo" }) |name| {
+    inline for (.{ "hello", "grab", "ui_demo", "anim", "text" }) |name| {
         const ex_mod = b.createModule(.{
             .root_source_file = b.path("examples/" ++ name ++ ".zig"),
             .target = target,

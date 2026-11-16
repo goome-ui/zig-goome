@@ -54,6 +54,13 @@ jobs:
           GOOME_BACKEND: test
           GOOME_TEST_SCRIPT: 'screen 640x360 1; end 20'
         run: ./zig-out/bin/grab 0 10 10 100 50 grab.ppm && test "$(head -c 2 grab.ppm)" = P6
+      - name: anim on the test backend
+        env:
+          GOOME_BACKEND: test
+          GOOME_TEST_SCRIPT: 'screen 900x800 1; 30 click 120,60; end 200'
+        run: ./zig-out/bin/anim
+      - name: text offscreen
+        run: ./zig-out/bin/text text.ppm && test "$(head -c 2 text.ppm)" = P6
       - name: used as a package
         working-directory: tests/consumer
         run: zig build run

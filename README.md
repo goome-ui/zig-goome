@@ -147,7 +147,7 @@ Working from a clone:
 git clone https://github.com/goome-ui/zig-goome
 cd zig-goome
 zig build test            # all the tests, on the test backend
-zig build examples        # zig-out/bin/hello, grab, ui_demo
+zig build examples        # zig-out/bin/hello, grab, ui_demo, anim, text
 zig build run-ui_demo
 ```
 </details>
@@ -273,6 +273,78 @@ ui.toast("saved", 2000);
 </details>
 
 <details>
+<summary align="center"><b>🎞️ Animations 🎞️</b></summary>
+
+<br>
+
+<p align="center">
+<code>ui.anim(id, target, ms, ease)</code> gives you a number that slides to the target, call it every frame with whatever the target is right now. goome keeps where it was per id and keeps <code>ui.animating()</code> true while something is still moving, so you know to keep drawing.
+</p>
+
+```zig
+const x = ui.anim("box", if (open) 200 else 10, 160, .out);
+const glow = ui.animColor("glow", if (hovered) 0xFF6FDC5F else 0x00000000, 200, .linear);
+const wobble = goome.ease(.spring, 0.5);   // just the curve, t 0..1
+```
+
+<p align="center">
+The eases are <code>goome.Ease</code>: <code>.linear</code>, <code>.in</code>, <code>.out</code>, <code>.in_out</code>, <code>.smooth</code>, <code>.back</code>, <code>.spring</code> and <code>.bounce</code> (spring and bounce go a bit past the end and come back).
+</p>
+</details>
+
+<details>
+<summary align="center"><b>🌍 Emoji, RTL And Typing 🌍</b></summary>
+
+<br>
+
+<p align="center">
+Color emoji, Arabic and Hebrew just work in every text call and widget. <code>Font.system</code> already adds your systems emoji font, for a font you loaded yourself add one with <code>font.fallback(emoji)</code>. The font doesnt own the fallback, so keep it around until you <code>deinit</code> the first one.<br>
+<code>goome.textDir(.rtl)</code> sets the paragraph direction for all text, <code>.auto</code> (the default) picks it from the first real letter of each line.
+</p>
+
+```zig
+const emoji = try goome.Font.load("NotoColorEmoji.ttf");
+defer emoji.deinit();
+font.fallback(emoji);
+goome.textDir(.rtl);
+_ = c.fontText(font, 20, 10, 10, "שלום 👋 مرحبا", 0xFFFFFFFF);
+goome.textDir(.auto);
+```
+
+<p align="center">
+Inputs and text edits turn the IME on by themselves while they have focus, so Japanese, Chinese, Korean and dead keys work without you doing anything. If you draw your own text box, <code>g.textInput(true, caret_rect)</code> turns it on and you get <code>.text</code> and <code>.preedit</code> events. <code>g.eventText()</code> has all of the text (the event itself cuts at 63 bytes) and <code>g.preeditCursor()</code> is where the caret is in it.
+</p>
+</details>
+
+<details>
+<summary align="center"><b>♿ Screen Readers ♿</b></summary>
+
+<br>
+
+<p align="center">
+The ui kit tells screen readers about every widget, on by default for app windows. <code>ui.a11yOn(true)</code> turns it on for overlays and offscreen too.<br>
+For your own <code>ui.custom</code> widgets, say what they are right before them:
+</p>
+
+```zig
+ui.a11yRole(.slider, "Volume knob");
+ui.a11yValue("11");
+_ = ui.custom("knob", 40, 40, 0, &item);
+```
+
+<p align="center">
+In a game engine you can read the whole tree and hand it to your own a11y layer. <code>parent</code> is an index into <code>nodes</code> (or null), <code>label</code> and <code>value</code> are slices:
+</p>
+
+```zig
+var tree = try ui.a11yTree(allocator);
+defer tree.deinit();
+for (tree.nodes) |n| std.debug.print("{s} {s} {s}\n", .{ @tagName(n.role), n.label, n.value });
+if (tree.find(.button, "OK")) |i| std.debug.print("ok is at {d},{d}\n", .{ tree.nodes[i].x, tree.nodes[i].y });
+```
+</details>
+
+<details>
 <summary align="center"><b>📚 The API 📚</b></summary>
 
 <br>
@@ -293,7 +365,10 @@ Everything from <a href="https://github.com/goome-ui/c-goome/blob/main/include/g
 | `g.setTitle`, `setSize`, `setPosition`, `setState`, `drag`, `show`, `setCursor`, `clipboard`, `setClipboard`, `dropPath` | app windows |
 | `g.push(ev)`, `pushClick`, `frame()`, `frameDirty()`, `frameCopy(buf, stride, .rgba, rect)`, `hit(x, y)`, `resize` | offscreen |
 | `goome.Bitmap.load` / `loadMem` / `fromArgb` / `wrap` | `deinit()` frees it, twice is fine |
-| `goome.Font.load` / `loadIndex` / `loadMem` / `system` | `measure`, `width`, `lineHeight`, `deinit()` |
+| `goome.Font.load` / `loadIndex` / `loadMem` / `system` | `measure`, `width`, `lineHeight`, `fallback`, `deinit()` |
+| `ui.anim`, `ui.animColor`, `goome.ease`, `goome.textDir` | animations and text direction |
+| `g.textInput`, `g.eventText`, `g.preeditCursor` | IME |
+| `ui.a11yOn`, `a11yRole`, `a11yValue`, `a11yTree(allocator)` | screen readers, `ui.a11yRaw(&buf)` fills raw C nodes without allocating |
 | `goome.parseCombo`, `goome.Pacer`, `goome.nowMs`, `goome.savePpm` | the small stuff |
 | `goome.c` | the whole raw header from `@cImport`, every `GOOME_` constant lives there |
 
@@ -345,6 +420,8 @@ c.clipPop();
 - `examples/hello.zig` - a box you can click and type into, alt+h hides it, esc or the x quits
 - `examples/grab.zig` - `zig build run-grab -- [monitor] [x y w h] out.ppm` saves a screen grab
 - `examples/ui_demo.zig` - the ui kit demo with every widget, a theme editor and a stats window
+- `examples/anim.zig` - every ease side by side, a color fade, a springy toggle and a bouncing badge
+- `examples/text.zig` - emoji, Arabic and Hebrew in labels and text boxes with a direction switch. `zig build run-text -- out.ppm` renders it offscreen to a file and prints what a screen reader sees
 
 They're ports of the C examples and do the same thing. `tests/consumer` is a tiny project that pulls this repo in as a package, CI builds it to make sure that keeps working.<br>
 Way more small projects live in [goome-ui/examples](https://github.com/goome-ui/examples).
@@ -394,7 +471,7 @@ const g = try goome.Goome.open(.{ .backend = .@"test", .test_script = "screen 80
 ```
 
 <p align="center">
-The script format is in the <a href="https://github.com/goome-ui/c-goome#readme">c-goome README</a>. The drawing, font, image and ui tests check the exact same pixel hashes as the tests in c-goome, on every OS, in Debug and ReleaseFast.
+The script format is in the <a href="https://github.com/goome-ui/c-goome#readme">c-goome README</a>. The drawing, font, emoji, animation, IME, image and ui tests check the exact same pixel hashes as the tests in c-goome, on every OS, in Debug and ReleaseFast.
 </p>
 </details>
 
