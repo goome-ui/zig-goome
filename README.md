@@ -136,7 +136,7 @@ exe.root_module.addImport("goome", goome.module("goome"));
 
 <p align="center">
 Thats it, the module brings goome's C with it and links libc. Nothing gets linked on top of that on any OS, goome loads what it needs at runtime.<br> <br>
-For a version tag instead of dev put it after the <code>#</code>, like <code>#v0.4.0</code> once theres a release. If you only want the C side, <code>goome.artifact("goome")</code> is a static lib with <code>goome.h</code> installed next to it.
+For a version tag instead of dev put it after the <code>#</code>, like <code>#v0.5.0</code>. If you only want the C side, <code>goome.artifact("goome")</code> is a static lib with <code>goome.h</code> installed next to it.
 </p>
 
 <p align="center">
