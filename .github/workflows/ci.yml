@@ -19,6 +19,13 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+      - name: xcode zig can link with
+        if: runner.os == 'macOS'
+        run: |
+          ls -d /Applications/Xcode*.app
+          x=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$x" ]; then sudo xcode-select -s "$x"; fi
+          xcrun --show-sdk-version
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.15.2
