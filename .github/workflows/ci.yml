@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: xcode zig can link with
+        if: runner.os == 'macOS'
+        run: |
+          for x in /Applications/Xcode_26.3.app /Applications/Xcode_16.4.app; do
+            if [ -d "$x" ]; then sudo xcode-select -s "$x"; break; fi
+          done
+          xcrun --show-sdk-version
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+      - name: zig fmt
+        run: zig fmt --check build.zig build.zig.zon src tests examples
+      - name: tests
+        run: zig build test --summary all
+      - name: tests, release
+        run: zig build test -Doptimize=ReleaseFast --summary all
+      - name: examples
+        run: zig build examples
+      - name: static lib
+        run: zig build && ls zig-out/lib zig-out/include
+      - name: hello on the test backend
+        env:
+          GOOME_BACKEND: test
+          GOOME_TEST_SCRIPT: 'screen 800x600 1; 2 click 100,100; 4 key hi; end 8'
+        run: ./zig-out/bin/hello
+      - name: ui demo on the test backend
+        env:
+          GOOME_BACKEND: test
+          GOOME_TEST_SCRIPT: 'screen 1280x720 1; 2 click 120,120; 4 click 200,90; end 12'
+        run: ./zig-out/bin/ui_demo
+      - name: grab on the test backend
+        env:
+          GOOME_BACKEND: test
+          GOOME_TEST_SCRIPT: 'screen 640x360 1; end 20'
+        run: ./zig-out/bin/grab 0 10 10 100 50 grab.ppm && test "$(head -c 2 grab.ppm)" = P6
+      - name: anim on the test backend
+        env:
+          GOOME_BACKEND: test
+          GOOME_TEST_SCRIPT: 'screen 900x800 1; 30 click 120,60; end 200'
+        run: ./zig-out/bin/anim
+      - name: text offscreen
+        run: ./zig-out/bin/text text.ppm && test "$(head -c 2 text.ppm)" = P6
+      - name: used as a package
+        working-directory: tests/consumer
+        run: zig build run

@@ -1,0 +1,31 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  upload:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: source tarball
+        run: |
+          v=${TAG#v}
+          grep -q "\.version = \"$v\"" build.zig.zon || { echo "build.zig.zon isnt $v"; exit 1; }
+          git archive --format=tar.gz --prefix="zig-goome-$v/" -o "zig-goome-$v.tar.gz" HEAD
+          tar -tzf "zig-goome-$v.tar.gz" | grep -qx "zig-goome-$v/build.zig.zon"
+      - name: upload
+        run: |
+          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "goome ${TAG#v}" --notes "goome ${TAG#v}"
+          gh release upload "$TAG" "zig-goome-${TAG#v}.tar.gz" --clobber
