@@ -123,6 +123,8 @@ pub const EventType = enum(c_int) {
     close = c.GOOME_CLOSE,
     focus = c.GOOME_FOCUS,
     drop = c.GOOME_DROP,
+    text = c.GOOME_TEXT,
+    preedit = c.GOOME_PREEDIT,
     _,
 };
 
@@ -211,6 +213,108 @@ pub const win = struct {
 pub const want = struct {
     pub const mouse = c.GOOME_WANT_MOUSE;
     pub const keyboard = c.GOOME_WANT_KEYBOARD;
+};
+
+pub const Ease = enum(c_int) {
+    smooth = c.GOOME_EASE_SMOOTH,
+    linear = c.GOOME_EASE_LINEAR,
+    out = c.GOOME_EASE_OUT,
+    in_out = c.GOOME_EASE_IN_OUT,
+    back = c.GOOME_EASE_BACK,
+    custom = c.GOOME_EASE_CUSTOM,
+    in = c.GOOME_EASE_IN,
+    spring = c.GOOME_EASE_SPRING,
+    bounce = c.GOOME_EASE_BOUNCE,
+    _,
+};
+
+pub fn ease(e: Ease, t: f64) f64 {
+    return c.goome_ease(@intFromEnum(e), t);
+}
+
+pub const TextDir = enum(c_int) {
+    auto = c.GOOME_DIR_AUTO,
+    ltr = c.GOOME_DIR_LTR,
+    rtl = c.GOOME_DIR_RTL,
+};
+
+pub fn textDir(dir: TextDir) void {
+    c.goome_text_dir(@intFromEnum(dir));
+}
+
+pub const Role = enum(c_int) {
+    none = c.GOOME_ROLE_NONE,
+    window = c.GOOME_ROLE_WINDOW,
+    button = c.GOOME_ROLE_BUTTON,
+    checkbox = c.GOOME_ROLE_CHECKBOX,
+    radio = c.GOOME_ROLE_RADIO,
+    slider = c.GOOME_ROLE_SLIDER,
+    text = c.GOOME_ROLE_TEXT,
+    input = c.GOOME_ROLE_INPUT,
+    combo = c.GOOME_ROLE_COMBO,
+    list = c.GOOME_ROLE_LIST,
+    item = c.GOOME_ROLE_ITEM,
+    tab = c.GOOME_ROLE_TAB,
+    menu = c.GOOME_ROLE_MENU,
+    menuitem = c.GOOME_ROLE_MENUITEM,
+    table = c.GOOME_ROLE_TABLE,
+    tree = c.GOOME_ROLE_TREE,
+    progress = c.GOOME_ROLE_PROGRESS,
+    image = c.GOOME_ROLE_IMAGE,
+    group = c.GOOME_ROLE_GROUP,
+    dialog = c.GOOME_ROLE_DIALOG,
+    _,
+};
+
+pub const a11y = struct {
+    pub const focused = c.GOOME_A11Y_FOCUSED;
+    pub const checked = c.GOOME_A11Y_CHECKED;
+    pub const disabled = c.GOOME_A11Y_DISABLED;
+    pub const expanded = c.GOOME_A11Y_EXPANDED;
+    pub const selected = c.GOOME_A11Y_SELECTED;
+};
+
+pub const RawA11yNode = c.goome_a11y_node;
+
+pub const A11yNode = struct {
+    role: Role,
+    parent: ?usize,
+    states: c_int,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    label: []const u8,
+    value: []const u8,
+    id: u32,
+    num: f64,
+    min: f64,
+    max: f64,
+    caret: i32,
+
+    pub fn has(n: A11yNode, st: c_int) bool {
+        return n.states & st != 0;
+    }
+};
+
+pub const A11yTree = struct {
+    raw: []RawA11yNode,
+    nodes: []A11yNode,
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(t: *A11yTree) void {
+        t.allocator.free(t.nodes);
+        t.allocator.free(t.raw);
+        t.raw = &.{};
+        t.nodes = &.{};
+    }
+
+    pub fn find(t: A11yTree, role: Role, label: []const u8) ?usize {
+        for (t.nodes, 0..) |n, i| {
+            if (n.role == role and std.mem.eql(u8, n.label, label)) return i;
+        }
+        return null;
+    }
 };
 
 pub const Format = enum(c_int) {
@@ -494,6 +598,19 @@ pub const Goome = opaque {
 
     pub fn dropPath(g: *Goome) ?[:0]const u8 {
         return span(c.goome_drop_path(g.raw()));
+    }
+
+    pub fn eventText(g: *Goome) [:0]const u8 {
+        return span(c.goome_event_text(g.raw())) orelse "";
+    }
+
+    pub fn preeditCursor(g: *Goome) usize {
+        return @intCast(@max(0, c.goome_preedit_cursor(g.raw())));
+    }
+
+    pub fn textInput(g: *Goome, on: bool, caret: ?Rect) Error!void {
+        const r: [*c]const Rect = if (caret) |*a| a else null;
+        try check(c.goome_text_input(g.raw(), cb(on), r));
     }
 
     pub fn push(g: *Goome, ev: Event) Error!void {
@@ -823,6 +940,10 @@ pub const Font = opaque {
 
     pub fn lineHeight(f: *Font, size: f64) f64 {
         return c.goome_text_line_height(ptr(f), size);
+    }
+
+    pub fn fallback(f: *Font, other: *Font) void {
+        c.goome_font_fallback(ptr(f), ptr(other));
     }
 };
 
@@ -1327,6 +1448,58 @@ pub const Ui = opaque {
         const cv = c.goome_ui_canvas(u.raw());
         if (cv == null) return null;
         return @ptrCast(cv);
+    }
+
+    pub fn anim(u: *Ui, id: [*:0]const u8, target: f64, ms: f64, e: Ease) f64 {
+        return c.goome_ui_anim(u.raw(), id, target, ms, @intFromEnum(e));
+    }
+
+    pub fn animColor(u: *Ui, id: [*:0]const u8, target: u32, ms: f64, e: Ease) u32 {
+        return c.goome_ui_anim_color(u.raw(), id, target, ms, @intFromEnum(e));
+    }
+
+    pub fn a11yOn(u: *Ui, on: bool) void {
+        c.goome_ui_a11y(u.raw(), cb(on));
+    }
+
+    pub fn a11yRole(u: *Ui, role: Role, name: ?[*:0]const u8) void {
+        c.goome_ui_a11y_role(u.raw(), @intFromEnum(role), cstr(name));
+    }
+
+    pub fn a11yValue(u: *Ui, value: ?[*:0]const u8) void {
+        c.goome_ui_a11y_value(u.raw(), cstr(value));
+    }
+
+    pub fn a11yRaw(u: *Ui, buf: []RawA11yNode) usize {
+        const n = c.goome_a11y_tree(u.raw(), buf.ptr, @intCast(buf.len));
+        return @intCast(@max(0, n));
+    }
+
+    pub fn a11yTree(u: *Ui, allocator: std.mem.Allocator) !A11yTree {
+        const buf = try allocator.alloc(RawA11yNode, u.a11yRaw(&.{}));
+        errdefer allocator.free(buf);
+        _ = u.a11yRaw(buf);
+        const nodes = try allocator.alloc(A11yNode, buf.len);
+        errdefer allocator.free(nodes);
+        for (buf, nodes) |*r, *n| {
+            n.* = .{
+                .role = @enumFromInt(r.role),
+                .parent = if (r.parent >= 0 and r.parent < buf.len) @intCast(r.parent) else null,
+                .states = r.states,
+                .x = r.x,
+                .y = r.y,
+                .w = r.w,
+                .h = r.h,
+                .label = std.mem.sliceTo(&r.label, 0),
+                .value = std.mem.sliceTo(&r.value, 0),
+                .id = r.id,
+                .num = r.num,
+                .min = r.min,
+                .max = r.max,
+                .caret = r.caret,
+            };
+        }
+        return .{ .raw = buf, .nodes = nodes, .allocator = allocator };
     }
 
     pub fn store(u: *Ui, id: [*:0]const u8, n: usize) ?[]f64 {

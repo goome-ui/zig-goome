@@ -41,6 +41,7 @@ const structs = .{
     .{ "goome_ui_item", c.goome_ui_item },
     .{ "goome_combo", c.goome_combo },
     .{ "goome_ui_config", c.goome_ui_config },
+    .{ "goome_a11y_node", c.goome_a11y_node },
 };
 
 fn sizeOfStruct(name: []const u8) ?usize {
@@ -110,6 +111,18 @@ test "constants" {
     try expect(goome.toError(c.GOOME_ENOTSUP) == error.NotSupported);
     try expect(goome.strerror(c.GOOME_ENOTSUP).len > 0);
     try expectEqualStrings("0.4.0", goome.version);
+    try expectEqual(@as(c_int, 13), @intFromEnum(goome.EventType.text));
+    try expectEqual(@as(c_int, 14), @intFromEnum(goome.EventType.preedit));
+    const eases = [_]goome.Ease{ .smooth, .linear, .out, .in_out, .back, .custom, .in, .spring, .bounce };
+    for (eases, 0..) |e, i| try expectEqual(@as(c_int, @intCast(i)), @intFromEnum(e));
+    try expectEqual(@as(c_int, 2), @intFromEnum(goome.TextDir.rtl));
+    try expectEqual(@as(c_int, 0), @intFromEnum(goome.Role.none));
+    try expectEqual(@as(c_int, 7), @intFromEnum(goome.Role.input));
+    try expectEqual(@as(c_int, 13), @intFromEnum(goome.Role.menuitem));
+    try expectEqual(@as(c_int, 19), @intFromEnum(goome.Role.dialog));
+    try expectEqual(@as(c_int, 1), goome.a11y.focused);
+    try expectEqual(@as(c_int, 16), goome.a11y.selected);
+    try expectEqual(@as(usize, 96), @typeInfo(@FieldType(goome.RawA11yNode, "label")).array.len);
 }
 
 test "combos" {
@@ -741,4 +754,518 @@ test "offscreen frames" {
     try g.frameCopy(buf, 200 * 4, .rgba, null);
     try std.testing.expectError(error.BadArgument, g.frameCopy(buf[0..10], 200 * 4, .rgba, null));
     try g.resize(300, 150, 1);
+}
+
+fn keyEvent(k: c_int, mods: c_int) goome.Event {
+    var e: goome.Event = .{ .kind = .key, .key = k, .mods = mods };
+    if (k >= 32 and k < 127 and mods & goome.mod.ctrl == 0) e.text[0] = @intCast(k);
+    return e;
+}
+
+fn msgEvent(kind: goome.EventType, s: []const u8, id: c_int) goome.Event {
+    var e: goome.Event = .{ .kind = kind, .id = id };
+    goome.setText(&e.msg, s);
+    return e;
+}
+
+const Anim = struct {
+    g: *goome.Goome,
+    u: *goome.Ui,
+    on: bool = false,
+    dropped: bool = false,
+    box: f64 = 0,
+    sp: f64 = 0,
+    last: f64 = 0,
+    col: u32 = 0,
+    hash: u32 = 0,
+
+    fn frame(k: *Anim) !void {
+        while (try k.g.poll(0)) |ev| _ = k.u.feed(ev);
+        const cv = k.u.begin(0) orelse return;
+        const r = k.u.canvas();
+        k.box = k.u.anim("box", if (k.on) 200 else 10, 160, .out);
+        k.sp = k.u.anim("spring", if (k.on) 1 else 0, 320, .spring);
+        k.col = k.u.animColor("col", if (k.on) 0xFF20D060 else 0, 200, .linear);
+        if (!k.dropped) k.last = k.u.anim("gone", if (k.on) 5 else 0, 100, .linear);
+        if (r) |rc| {
+            rc.rect(k.box, 20, 60, 40, 0xFFE0A030);
+            rc.rrect(20 + k.sp * 180, 90, 50, 30, goome.radius(15), 0xFF4FB3F7);
+            rc.rect(20, 140, 260, 40, k.col);
+        }
+        k.u.end();
+        k.hash = fnv(cv.pixels(), cv.width(), cv.height(), cv.stride());
+    }
+};
+
+test "ease curves match C" {
+    try expectEqual(@as(f64, 0.25), goome.ease(.linear, 0.25));
+    try expectEqual(@as(f64, 0.125), goome.ease(.in, 0.5));
+    try expectEqual(@as(f64, 0.875), goome.ease(.out, 0.5));
+    try expectEqual(@as(f64, 0.0625), goome.ease(.in_out, 0.25));
+    try expectEqual(@as(f64, 0.9375), goome.ease(.in_out, 0.75));
+    try expectEqual(@as(f64, 0.5), goome.ease(.smooth, 0.5));
+    try expectEqual(@as(f64, 0.47265625), goome.ease(.bounce, 0.25));
+    try expect(goome.ease(.out, -3) == 0 and goome.ease(.in, 7) == 1);
+    var peak: f64 = 0;
+    var low: f64 = 1;
+    for (1..100) |i| {
+        const v = goome.ease(.spring, @as(f64, @floatFromInt(i)) / 100.0);
+        peak = @max(peak, v);
+        if (i > 30) low = @min(low, v);
+        try expect(goome.ease(.bounce, @as(f64, @floatFromInt(i)) / 100.0) >= 0);
+    }
+    try expect(peak > 1.1 and peak < 1.25 and low < 1 and low > 0.9);
+}
+
+test "anim frames match C" {
+    const g = try goome.Goome.open(.{ .backend = .@"test", .mode = .window, .width = 300, .height = 200, .test_script = "end 100000" });
+    defer g.deinit();
+    const u = try g.ui();
+    defer u.deinit();
+    var k: Anim = .{ .g = g, .u = u };
+    try k.frame();
+    try expect(k.box == 10 and k.sp == 0 and k.col == 0 and k.last == 0);
+    try k.frame();
+    try expect(!u.animating());
+    var hs: [4]u32 = undefined;
+    k.on = true;
+    var prev = k.box;
+    var over: f64 = 0;
+    var mid: u32 = 0;
+    var moving: usize = 0;
+    for (0..60) |f| {
+        try k.frame();
+        switch (f) {
+            1 => hs[0] = k.hash,
+            4 => hs[1] = k.hash,
+            8 => hs[2] = k.hash,
+            6 => mid = k.col,
+            else => {},
+        }
+        try expect(k.box >= prev);
+        prev = k.box;
+        over = @max(over, k.sp);
+        if (u.animating()) moving = f + 1;
+    }
+    hs[3] = k.hash;
+    try expect(k.box == 200 and k.sp == 1 and k.col == 0xFF20D060 and k.last == 5);
+    try expect(over > 1.05 and moving >= 19 and moving <= 22 and !u.animating());
+    try expect(mid >> 24 > 0x70 and mid >> 24 < 0x90 and (mid >> 8 & 255) == 0xD0 and (mid >> 16 & 255) == 0x20);
+    k.on = false;
+    try k.frame();
+    try expect(u.animating() and k.box == 200);
+    try k.frame();
+    try expect(k.box < 200 and k.box > 10);
+    k.on = true;
+    try k.frame();
+    try expect(k.box < 200 and u.animating());
+    k.dropped = true;
+    for (0..1600) |_| try k.frame();
+    k.dropped = false;
+    k.on = false;
+    try k.frame();
+    try expectEqual(@as(f64, 0), k.last);
+    try expectEqual([4]u32{ 0x0226f2f5, 0x906d3ce5, 0xdb5848ad, 0x12bea72d }, hs);
+}
+
+fn txtHash(f: *goome.Font, size: f64, s: [*:0]const u8, argb: u32, dir: goome.TextDir, w: c_int, h: c_int) !u32 {
+    var oc = try goome.OwnedCanvas.init(alloc, 400, 120, 400, 1);
+    defer oc.deinit();
+    oc.raw.w = w;
+    oc.raw.h = h;
+    oc.raw.kx1 = w;
+    oc.raw.ky1 = h;
+    goome.textDir(dir);
+    _ = oc.canvas().fontText(f, size, 4, 4, s, argb);
+    goome.textDir(.auto);
+    return fnv(oc.buf, 400, 120, 400);
+}
+
+fn near(a: f64, b: f64) bool {
+    return @abs(a - b) < 0.01;
+}
+
+test "emoji and rtl text match C" {
+    const f = try goome.Font.loadMem(@embedFile("data/colr.ttf"), false);
+    defer f.deinit();
+    const cbf = try goome.Font.loadMem(@embedFile("data/cbdt.ttf"), false);
+    defer cbf.deinit();
+    const sb = try goome.Font.loadMem(@embedFile("data/sbix.ttf"), false);
+    defer sb.deinit();
+    const d = try goome.Font.loadMem(@embedFile("data/dejavu-sub.ttf"), false);
+    defer d.deinit();
+    try expect(near(f.width(30, "\u{1F600}\u{1F3FB}"), 24));
+    try expect(near(f.width(30, "\u{1F600}\u{200D}\u{1F600}"), 24));
+    try expect(near(f.width(30, "\u{2764}"), 18) and near(f.width(30, "\u{2764}\u{FE0F}"), 24));
+    var got: [6]u32 = undefined;
+    got[0] = try txtHash(f, 30, "ab \u{1F600} \u{1F600}\u{1F3FB} \u{1F600}\u{200D}\u{1F600} \u{2764} \u{2764}\u{FE0F}", 0xFF2040A0, .auto, 400, 60);
+    var oc = try goome.OwnedCanvas.init(alloc, 400, 120, 400, 1);
+    defer oc.deinit();
+    const cv = oc.canvas();
+    _ = cv.fontText(cbf, 16, 4, 4, "\u{1F431}", 0xFFFFFFFF);
+    _ = cv.fontText(cbf, 64, 30, 4, "\u{1F431}", 0xFFFFFFFF);
+    _ = cv.fontText(sb, 40, 120, 4, "\u{1F431}\u{1F431}", 0x80FFFFFF);
+    const mid = cv.pixels()[(4 + 40) * 400 + 30 + 35];
+    try expect(mid >> 24 == 255 and (mid >> 16 & 255) > 200 and (mid >> 8 & 255) > 100 and (mid >> 8 & 255) < 210 and (mid & 255) < 120);
+    got[1] = fnv(cv.pixels(), 400, 120, 400);
+    d.fallback(f);
+    d.fallback(d);
+    try expect(near(d.width(20, "goome! \u{1F600}"), d.width(20, "goome! ") + 16));
+    got[2] = try txtHash(d, 20, "goome! \u{1F600} Hi", 0xFFFFFFFF, .auto, 400, 40);
+    const heb = "ab \u{05D0}\u{05D1}\u{05D2} (12) c";
+    got[3] = try txtHash(f, 24, heb, 0xFFFFFFFF, .auto, 400, 40);
+    try expect(got[3] != try txtHash(f, 24, heb, 0xFFFFFFFF, .rtl, 400, 40));
+    try expectEqual(got[3], try txtHash(f, 24, heb, 0xFFFFFFFF, .ltr, 400, 40));
+    got[4] = try txtHash(f, 24, heb, 0xFFFFFFFF, .rtl, 400, 40);
+    try expect(near(f.width(20, "\u{0628}\u{0644}\u{0627}\u{0645} \u{0628}\u{0628}\u{0628} \u{0644}\u{0645}"), 93.2));
+    got[5] = try txtHash(f, 30, "\u{0628}\u{0644}\u{0627}\u{0645} \u{0628}\u{0628}\u{0628} \u{0644}\u{0645} \u{0628}\u{064E}\u{0628}", 0xFFFFFFFF, .auto, 400, 50);
+    try expectEqual([6]u32{ 0x3bab3875, 0x85fe883a, 0xd3add387, 0xb79518dd, 0x49a72d7d, 0x469719e1 }, got);
+}
+
+const Ime = struct {
+    g: *goome.Goome,
+    u: *goome.Ui,
+    in: [64]u8 = [_]u8{0} ** 64,
+    ed: [96]u8 = [_]u8{0} ** 96,
+    flags: c_int = 0,
+    hash: u32 = 0,
+
+    fn open(sc: [*:0]const u8, in: []const u8, ed: []const u8, focus: u8) !Ime {
+        const g = try goome.Goome.open(.{ .backend = .@"test", .mode = .window, .width = 300, .height = 200, .test_script = sc });
+        errdefer g.deinit();
+        const u = try g.ui();
+        u.theme().font = null;
+        u.theme().font_size = 14;
+        u.theme().anim_ms = 0;
+        u.config().blink_ms = 0;
+        var k: Ime = .{ .g = g, .u = u };
+        goome.setText(&k.in, in);
+        goome.setText(&k.ed, ed);
+        try k.frame(focus);
+        try k.frame(0);
+        return k;
+    }
+
+    fn close(k: *Ime) void {
+        k.u.deinit();
+        k.g.deinit();
+    }
+
+    fn frame(k: *Ime, focus: u8) !void {
+        while (try k.g.poll(0)) |ev| _ = k.u.feed(ev);
+        const cv = k.u.begin(0) orelse return;
+        if (focus == 1) k.u.setFocus();
+        _ = k.u.inputEx("in", &k.in, c.GOOME_INPUT_NO_SELECT_ON_FOCUS | k.flags, null);
+        if (focus == 2) k.u.setFocus();
+        _ = k.u.textEdit("ed", &k.ed, 80, 0);
+        k.u.end();
+        k.hash = fnv(cv.pixels(), cv.width(), cv.height(), cv.stride());
+    }
+
+    fn push(k: *Ime, kind: goome.EventType, s: []const u8, cur: c_int) !void {
+        try k.g.push(msgEvent(kind, s, cur));
+        try k.frame(0);
+    }
+
+    fn key(k: *Ime, ky: c_int, mods: c_int) !void {
+        try k.g.push(keyEvent(ky, mods));
+        try k.frame(0);
+    }
+};
+
+test "ime events from the test script" {
+    const g = try goome.Goome.open(.{ .backend = .@"test", .mode = .window, .width = 100, .height = 100, .test_script = "1 text " ++ "q" ** 80 ++ ";2 preedit \u{306B}\u{307B}\u{3093} 3;3 preedit abc;4 preedit;end 10" });
+    defer g.deinit();
+    try g.push(msgEvent(.text, "hi", 0));
+    const e = (try g.poll(0)) orelse return error.NoEvent;
+    try expect(e.kind == .text);
+    try expectEqualStrings("hi", e.message());
+    try expectEqualStrings("hi", g.eventText());
+    try g.textInput(true, goome.rect(10, 20, 1, 16));
+    try g.textInput(false, null);
+    var got: u8 = 0;
+    var quit = false;
+    var f: usize = 0;
+    while (f < 20 and !quit) : (f += 1) {
+        while (try g.poll(0)) |ev| {
+            switch (ev.kind) {
+                .quit => quit = true,
+                .text => {
+                    got |= 1;
+                    try expectEqual(@as(usize, 63), ev.message().len);
+                    try expectEqualStrings("q" ** 80, g.eventText());
+                },
+                .preedit => {
+                    if (std.mem.eql(u8, g.eventText(), "\u{306B}\u{307B}\u{3093}")) {
+                        got |= 2;
+                        try expect(ev.id == 3 and g.preeditCursor() == 3);
+                    } else if (std.mem.eql(u8, ev.message(), "abc")) {
+                        got |= 4;
+                        try expectEqual(@as(usize, 3), g.preeditCursor());
+                    } else if (ev.message().len == 0) {
+                        got |= 8;
+                        try expect(g.preeditCursor() == 0 and g.eventText().len == 0);
+                    }
+                },
+                else => {},
+            }
+        }
+        if (g.begin(0)) |cv| try g.end(cv, &.{});
+    }
+    try expectEqual(@as(u8, 15), got);
+}
+
+test "ime preedit and commit match C" {
+    var h: [4]u32 = undefined;
+    var k = try Ime.open("end 100000", "ab", "", 1);
+    h[0] = k.hash;
+    try k.push(.preedit, "xyz", 1);
+    h[1] = k.hash;
+    try k.push(.preedit, "xyz", 3);
+    h[2] = k.hash;
+    try expect(h[0] != h[1] and h[1] != h[2]);
+    try expectEqualStrings("ab", goome.text(&k.in));
+    try k.push(.preedit, "", 0);
+    try expectEqual(h[0], k.hash);
+    try k.push(.text, "\u{65E5}\u{672C}", 0);
+    try expectEqualStrings("ab\u{65E5}\u{672C}", goome.text(&k.in));
+    try k.key('c', 0);
+    try expectEqualStrings("ab\u{65E5}\u{672C}c", goome.text(&k.in));
+    try k.key('z', goome.mod.ctrl);
+    try expectEqualStrings("ab\u{65E5}\u{672C}", goome.text(&k.in));
+    try k.key('z', goome.mod.ctrl);
+    try expectEqualStrings("ab\u{65E5}\u{672C}c", goome.text(&k.in));
+    try k.key('a', goome.mod.ctrl);
+    try k.push(.text, "\u{E9}", 0);
+    try expectEqualStrings("\u{E9}", goome.text(&k.in));
+    k.close();
+
+    k = try Ime.open("end 100000", "", "line", 2);
+    h[3] = k.hash;
+    try k.push(.preedit, "kana", 2);
+    try expect(k.hash != h[3]);
+    const edh = k.hash;
+    try k.push(.preedit, "", 0);
+    try k.push(.text, "\u{304B}\u{306A}\n", 0);
+    try expectEqualStrings("\u{304B}\u{306A}\nline", goome.text(&k.ed));
+    try expectEqual(@as(usize, 0), goome.text(&k.in).len);
+    try k.key('z', goome.mod.ctrl);
+    try expectEqualStrings("line", goome.text(&k.ed));
+    k.close();
+
+    k = try Ime.open("end 100000", "", "", 1);
+    k.flags = c.GOOME_INPUT_NUMBER;
+    try k.push(.text, "1a2.5", 0);
+    try expectEqualStrings("12.5", goome.text(&k.in));
+    k.close();
+
+    try expectEqual(@as(u32, 0x2e20540f), h[1]);
+    try expectEqual(@as(u32, 0xceafcbad), h[2]);
+    try expectEqual(@as(u32, 0xc9c1add5), edh);
+}
+
+const Ax = struct {
+    g: *goome.Goome,
+    u: *goome.Ui,
+    ok: usize = 0,
+    dark: bool = false,
+    mode: i32 = 0,
+    fruit: i32 = 0,
+    tab: i32 = 0,
+    open: bool = false,
+    custom_hits: usize = 0,
+    vol: f64 = 2,
+    name: [64]u8 = [_]u8{0} ** 64,
+    note: [256]u8 = [_]u8{0} ** 256,
+    tree: ?goome.A11yTree = null,
+
+    fn nodes(k: *Ax) []goome.A11yNode {
+        return if (k.tree) |t| t.nodes else &.{};
+    }
+
+    fn find(k: *Ax, role: goome.Role, label: []const u8) ?usize {
+        return if (k.tree) |t| t.find(role, label) else null;
+    }
+
+    fn node(k: *Ax, i: ?usize) !goome.A11yNode {
+        return k.nodes()[i orelse return error.NoNode];
+    }
+
+    fn frame(k: *Ax) !void {
+        const fruits = [_][*:0]const u8{ "Mango", "Kiwi", "Fig" };
+        const tabs = [_][*:0]const u8{ "One", "Two" };
+        while (try k.g.poll(0)) |ev| _ = k.u.feed(ev);
+        if (k.u.begin(0) == null) return;
+        _ = k.u.app("Demo", c.GOOME_APP_TITLEBAR | c.GOOME_APP_STATUSBAR);
+        k.u.label("Hello there");
+        if (k.u.button("OK")) k.ok += 1;
+        _ = k.u.checkbox("Dark", &k.dark);
+        _ = k.u.radio("Big", &k.mode, 1);
+        _ = k.u.slider("Volume", &k.vol, 0, 10, "%.1f");
+        _ = k.u.input("Name", &k.name);
+        _ = k.u.combo("Fruit", &k.fruit, &fruits);
+        _ = k.u.tabs("tabs", &tabs, &k.tab);
+        if (k.u.tree("Folder", &k.open)) {
+            k.u.label("inside");
+            k.u.treeEnd();
+        }
+        k.u.progress(0.25, null);
+        _ = k.u.textEdit("Notes", &k.note, 60, 0);
+        k.u.a11yRole(.button, "Knob");
+        k.u.a11yValue("11");
+        var it: goome.Item = .{};
+        _ = k.u.custom("knob", 40, 40, 0, &it);
+        if (it.clicked != 0) k.custom_hits += 1;
+        k.u.statusbar("ready");
+        k.u.appEnd();
+        k.u.end();
+        if (k.tree) |*t| t.deinit();
+        k.tree = try k.u.a11yTree(alloc);
+    }
+
+    fn send(k: *Ax, verb: []const u8, i: ?usize, text: ?[]const u8) !void {
+        const n = try k.node(i);
+        var buf: [64]u8 = undefined;
+        const s = if (text) |t| try std.fmt.bufPrint(&buf, "a11y {s} {d} {s}", .{ verb, n.id, t }) else try std.fmt.bufPrint(&buf, "a11y {s} {d}", .{ verb, n.id });
+        try k.g.push(msgEvent(.control, s, 0));
+    }
+};
+
+test "a11y tree and actions match C" {
+    const g = try goome.Goome.open(.{ .backend = .@"test", .mode = .window, .width = 420, .height = 700, .test_script = "end 100000" });
+    defer g.deinit();
+    const u = try g.ui();
+    defer u.deinit();
+    u.theme().font = null;
+    var k: Ax = .{ .g = g, .u = u };
+    defer if (k.tree) |*t| t.deinit();
+    goome.setText(&k.name, "Bo");
+    try k.frame();
+    try expect(k.nodes().len > 15);
+    const app = k.find(.window, "Demo");
+    const ok = k.find(.button, "OK");
+    const dark = k.find(.checkbox, "Dark");
+    const vol = k.find(.slider, "Volume");
+    const name = k.find(.input, "Name");
+    const fruit = k.find(.combo, "Fruit");
+    const tree = k.find(.tree, "Folder");
+    const knob = k.find(.button, "Knob");
+    const tab2 = k.find(.tab, "Two");
+    const big = k.find(.radio, "Big");
+    const notes = k.find(.input, "Notes");
+    try expectEqual(@as(?usize, 0), app);
+    try expectEqual(@as(?usize, null), (try k.node(app)).parent);
+    const okn = try k.node(ok);
+    try expect(okn.parent == app and okn.w > 0 and okn.h > 0);
+    try expect(k.find(.text, "Hello there") != null and k.find(.text, "ready") != null);
+    try expect(k.find(.button, "Close") != null and k.find(.button, "Minimize") != null);
+    try expect(!(try k.node(dark)).has(goome.a11y.checked));
+    try expect(!(try k.node(big)).has(goome.a11y.checked));
+    const vn = try k.node(vol);
+    try expect(vn.num == 2 and vn.min == 0 and vn.max == 10);
+    try expectEqualStrings("2.0", vn.value);
+    try expectEqualStrings("Bo", (try k.node(name)).value);
+    try expectEqualStrings("Mango", (try k.node(fruit)).value);
+    try expect(!(try k.node(fruit)).has(goome.a11y.expanded));
+    const t2 = try k.node(tab2);
+    try expectEqual(goome.Role.group, (try k.node(t2.parent)).role);
+    try expect(!t2.has(goome.a11y.selected));
+    try expect((try k.node(k.find(.tab, "One"))).has(goome.a11y.selected));
+    try expect(!(try k.node(tree)).has(goome.a11y.expanded) and k.find(.text, "inside") == null);
+    try expectEqualStrings("11", (try k.node(knob)).value);
+    try expect(notes != null);
+    var pr: ?usize = null;
+    for (k.nodes(), 0..) |n, i| {
+        if (n.role == .progress) pr = i;
+    }
+    try expect((try k.node(pr)).num == 0.25);
+    try expectEqualStrings("25%", (try k.node(pr)).value);
+    var ids: [256]u32 = undefined;
+    const before = k.nodes().len;
+    for (k.nodes(), 0..) |n, i| ids[i] = n.id;
+    try k.frame();
+    try expectEqual(before, k.nodes().len);
+    for (k.nodes(), 0..) |n, i| {
+        try expectEqual(ids[i], n.id);
+        for (k.nodes()[0..i]) |m| try expect(m.id != n.id);
+    }
+
+    try k.send("press", ok, null);
+    try k.send("press", dark, null);
+    try k.send("press", big, null);
+    try k.send("set", vol, "7.5");
+    try k.send("set", name, "hello there");
+    try k.send("press", knob, null);
+    try k.send("expand", tree, null);
+    try k.send("press", tab2, null);
+    try k.send("set", notes, "line one");
+    try k.frame();
+    try expect(k.ok == 1 and k.dark and k.mode == 1 and k.vol == 7.5 and k.custom_hits == 1 and k.open and k.tab == 1);
+    try expectEqualStrings("hello there", goome.text(&k.name));
+    try expectEqualStrings("line one", goome.text(&k.note));
+    try k.frame();
+    try expect((try k.node(k.find(.checkbox, "Dark"))).has(goome.a11y.checked));
+    try expectEqualStrings("7.5", (try k.node(k.find(.slider, "Volume"))).value);
+    try expectEqualStrings("hello there", (try k.node(k.find(.input, "Name"))).value);
+    const tr = k.find(.tree, "Folder");
+    try expect((try k.node(tr)).has(goome.a11y.expanded));
+    try expectEqual(tr, (try k.node(k.find(.text, "inside"))).parent);
+    try k.send("expand", tr, null);
+    try k.send("set", k.find(.slider, "Volume"), "99");
+    try k.frame();
+    try expect(k.open and k.vol == 10);
+
+    try k.send("focus", k.find(.input, "Name"), null);
+    try k.frame();
+    try k.frame();
+    const nm = try k.node(k.find(.input, "Name"));
+    try expect(nm.has(goome.a11y.focused) and nm.caret == 11);
+    var focused: usize = 0;
+    for (k.nodes()) |n| focused += @intFromBool(n.has(goome.a11y.focused));
+    try expectEqual(@as(usize, 1), focused);
+
+    try k.send("expand", k.find(.combo, "Fruit"), null);
+    try k.frame();
+    try k.frame();
+    const fr = k.find(.combo, "Fruit");
+    try expect((try k.node(fr)).has(goome.a11y.expanded));
+    const fig = try k.node(k.find(.item, "Fig"));
+    const list = try k.node(fig.parent);
+    try expect(list.role == .list and list.parent == fr);
+    try k.send("press", k.find(.item, "Fig"), null);
+    try k.frame();
+    try k.frame();
+    try expect(k.fruit == 2 and k.find(.item, "Fig") == null);
+    try expectEqualStrings("Fig", (try k.node(k.find(.combo, "Fruit"))).value);
+    try k.send("set", k.find(.combo, "Fruit"), "Kiwi");
+    try k.frame();
+    try expectEqual(@as(i32, 1), k.fruit);
+
+    u.a11yOn(false);
+    try k.frame();
+    try expectEqual(@as(usize, 0), k.nodes().len);
+
+    const og = try goome.Goome.openOffscreen(200, 100, 1);
+    defer og.deinit();
+    const ou = try og.ui();
+    defer ou.deinit();
+    ou.theme().font = null;
+    var raw: [8]goome.RawA11yNode = undefined;
+    for (0..2) |pass| {
+        if (ou.begin(0) != null) {
+            _ = ou.button("Hi");
+            ou.end();
+        }
+        try expectEqual(pass, ou.a11yRaw(&raw));
+        ou.a11yOn(true);
+    }
+    if (ou.begin(0) != null) {
+        _ = ou.button("Hi");
+        ou.end();
+    }
+    var t = try ou.a11yTree(alloc);
+    defer t.deinit();
+    try expectEqual(@as(usize, 1), t.nodes.len);
+    try expect(t.nodes[0].role == .button and t.nodes[0].parent == null);
+    try expectEqualStrings("Hi", t.nodes[0].label);
 }
