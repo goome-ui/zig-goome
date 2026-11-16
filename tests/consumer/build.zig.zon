@@ -1,0 +1,10 @@
+.{
+    .name = .goome_consumer,
+    .version = "0.0.0",
+    .fingerprint = 0x5ff2d2de16ac0fe4,
+    .minimum_zig_version = "0.15.2",
+    .dependencies = .{
+        .goome = .{ .path = "../.." },
+    },
+    .paths = .{""},
+}
