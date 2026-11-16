@@ -22,9 +22,9 @@ jobs:
       - name: xcode zig can link with
         if: runner.os == 'macOS'
         run: |
-          ls -d /Applications/Xcode*.app
-          x=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
-          if [ -n "$x" ]; then sudo xcode-select -s "$x"; fi
+          for x in /Applications/Xcode_26.3.app /Applications/Xcode_16.4.app; do
+            if [ -d "$x" ]; then sudo xcode-select -s "$x"; break; fi
+          done
           xcrun --show-sdk-version
       - uses: mlugg/setup-zig@v2
         with:
