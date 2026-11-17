@@ -1,0 +1,75 @@
+name: update native
+
+on:
+  schedule:
+    - cron: '53 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.BOT_TOKEN || github.token }}
+      USING_BOT_TOKEN: ${{ secrets.BOT_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+          token: ${{ secrets.BOT_TOKEN || github.token }}
+      - name: look for a newer c-goome
+        id: check
+        run: |
+          latest=$(gh release view -R goome-ui/c-goome --json tagName -q .tagName)
+          latest=${latest#v}
+          have=$(grep -m1 'define GOOME_VERSION' native/goome.h | cut -d'"' -f2)
+          echo "c-goome $latest, vendored $have"
+          if [ "$latest" = "$have" ] || [ "$(printf '%s\n%s\n' "$have" "$latest" | sort -V | tail -n1)" != "$latest" ]; then
+            echo "up to date"
+            exit 0
+          fi
+          if git ls-remote --exit-code --heads origin "native-$latest" > /dev/null 2>&1; then
+            echo "native-$latest already exists"
+            exit 0
+          fi
+          if [ -n "$(gh pr list --state open --head "native-$latest" --json number -q '.[].number')" ]; then
+            echo "there is already a pr for native-$latest"
+            exit 0
+          fi
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+      - name: re-vendor
+        if: steps.check.outputs.latest != ''
+        env:
+          LATEST: ${{ steps.check.outputs.latest }}
+        run: |
+          git clone -q --depth 1 --branch "v$LATEST" https://github.com/goome-ui/c-goome deps/c-goome
+          bash tools/update_native.sh deps/c-goome
+          rm -rf deps
+      - name: open the pr
+        if: steps.check.outputs.latest != ''
+        env:
+          LATEST: ${{ steps.check.outputs.latest }}
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "nothing changed"
+            exit 0
+          fi
+          git config user.name "$(git log -1 --format=%an dev)"
+          git config user.email "$(git log -1 --format=%ae dev)"
+          git checkout -b "native-$LATEST"
+          git add native build.zig.zon
+          git commit -q -m "Update native to $LATEST"
+          git push origin "native-$LATEST"
+          body="Re-vendors goome.h from c-goome $LATEST, bumps the version in build.zig.zon.
+
+          Run CI on this, run zig build test, the layout test says if a struct changed, then release the binding."
+          if [ "$USING_BOT_TOKEN" != "true" ]; then
+            body="$body
+
+          This PR was opened with the default token, so CI didnt start. Close and reopen the PR to run CI."
+          fi
+          gh pr create --base dev --head "native-$LATEST" --title "Update native to $LATEST" --body "$body"
