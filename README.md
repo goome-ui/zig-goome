@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <img src="https://goome-ui.github.io/docs/assets/badges/zig-0152.svg" alt="Zig 0.15.2">
-  <img src="https://goome-ui.github.io/docs/assets/badges/zig-package.svg" alt="zig fetch, build.zig.zon">
-  <img src="https://goome-ui.github.io/docs/assets/badges/dependencies-none.svg" alt="no dependencies">
+  <img src="https://goome.wtf/badges/zig-0152.svg" alt="Zig 0.15.2">
+  <img src="https://goome.wtf/badges/zig-package.svg" alt="zig fetch, build.zig.zon">
+  <img src="https://goome.wtf/badges/dependencies-none.svg" alt="no dependencies">
   <img src="https://img.shields.io/badge/Linux-X11%20%2B%20Wayland-1b1d22?style=flat-square&logo=linux&logoColor=white" alt="Linux">
   <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-1b1d22?style=flat-square&logo=windows11&logoColor=white" alt="Windows">
   <img src="https://img.shields.io/badge/macOS-14%2B-1b1d22?style=flat-square&logo=apple&logoColor=white" alt="macOS">
@@ -19,8 +19,8 @@
 </p>
 
 <p align="center">
-  <a href="https://goome-ui.github.io/docs/">Docs</a> &nbsp;·&nbsp;
-  <a href="https://goome-ui.github.io/docs/builder/">Builder</a> &nbsp;·&nbsp;
+  <a href="https://goome.wtf/docs/">Docs</a> &nbsp;·&nbsp;
+  <a href="https://goome.wtf/builder/">Builder</a> &nbsp;·&nbsp;
   <a href="https://github.com/goome-ui/examples">Examples</a> &nbsp;·&nbsp;
   <a href="https://github.com/goome-ui/c-goome">C</a> &nbsp;·&nbsp;
   <a href="https://github.com/goome-ui/csharp-goome">C#</a> &nbsp;·&nbsp;
@@ -350,7 +350,7 @@ if (tree.find(.button, "OK")) |i| std.debug.print("ok is at {d},{d}\n", .{ tree.
 <br>
 
 <p align="center">
-Everything from <a href="https://github.com/goome-ui/c-goome/blob/main/include/goome.h">goome.h</a> is in here. <a href="https://goome-ui.github.io/docs/">The docs</a> explain every part of it. The names are the C ones without <code>goome_</code>, in camelCase, and hang off the type they work on.
+Everything from <a href="https://github.com/goome-ui/c-goome/blob/main/include/goome.h">goome.h</a> is in here. <a href="https://goome.wtf/docs/">The docs</a> explain every part of it. The names are the C ones without <code>goome_</code>, in camelCase, and hang off the type they work on.
 </p>
 
 | | |
