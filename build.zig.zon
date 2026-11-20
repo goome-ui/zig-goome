@@ -1,6 +1,6 @@
 .{
     .name = .goome,
-    .version = "0.5.3",
+    .version = "0.5.5",
     .fingerprint = 0x2075b7352320ce24,
     .minimum_zig_version = "0.15.2",
     .dependencies = .{},
