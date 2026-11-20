@@ -110,7 +110,7 @@ test "constants" {
     try expectEqual(@as(c_int, -5), goome.errorCode(error.Again));
     try expect(goome.toError(c.GOOME_ENOTSUP) == error.NotSupported);
     try expect(goome.strerror(c.GOOME_ENOTSUP).len > 0);
-    try expectEqualStrings("0.5.3", goome.version);
+    try expectEqualStrings("0.5.5", goome.version);
     try expectEqual(@as(c_int, 13), @intFromEnum(goome.EventType.text));
     try expectEqual(@as(c_int, 14), @intFromEnum(goome.EventType.preedit));
     const eases = [_]goome.Ease{ .smooth, .linear, .out, .in_out, .back, .custom, .in, .spring, .bounce };

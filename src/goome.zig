@@ -201,6 +201,7 @@ pub const window_flags = struct {
     pub const hidden = c.GOOME_WINDOW_HIDDEN;
     pub const center = c.GOOME_WINDOW_CENTER;
     pub const no_titlebar = c.GOOME_WINDOW_NO_TITLEBAR;
+    pub const no_console = c.GOOME_WINDOW_NO_CONSOLE;
 };
 
 pub const win = struct {
